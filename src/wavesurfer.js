@@ -199,28 +199,28 @@ class PluginClass {
      *
      * @param {Object} params={} The plugin params (specific to the plugin)
      */
-    create(params) {}
+    create(params) { }
     /**
      * Construct the plugin
      *
      * @param {Object} params={} The plugin params (specific to the plugin)
      * @param {Object} ws The wavesurfer instance
      */
-    constructor(params, ws) {}
+    constructor(params, ws) { }
     /**
      * Initialise the plugin
      *
      * Start doing something. This is called by
      * `wavesurfer.initPlugin(pluginName)`
      */
-    init() {}
+    init() { }
     /**
      * Destroy the plugin instance
      *
      * Stop doing something. This is called by
      * `wavesurfer.destroyPlugin(pluginName)`
      */
-    destroy() {}
+    destroy() { }
 }
 
 /**
@@ -305,7 +305,11 @@ export default class WaveSurfer extends util.Observer {
         },
         vertical: false,
         waveColor: '#999',
-        xhr: {}
+        xhr: {},
+
+        // Add low-pass cutoff
+        shouldCutoff: false,
+        cutoffIntensity: 0.1,
     };
 
     /** @private */
@@ -1271,6 +1275,49 @@ export default class WaveSurfer extends util.Observer {
         this.drawBuffer();
     }
 
+
+    /**
+     * Apply cutoff for peaks
+     * @private
+     * 
+     * @param peaks Peaks to apply cutoff
+     * 
+     * @returns New peaks
+     */
+
+    applyCutoff(peaks) {
+        peaks = peaks.map(x => isNaN(x) ? 0 : x);
+        const avg = peaks.reduce((a, b) => a + Math.abs(b)) / peaks.length;
+        console.log(`[wavesurfer.js cutoff] avg = ${avg}`);
+
+        const absPeaks = peaks.map(x => Math.abs(x));
+        const max = Math.max(...absPeaks);
+        console.log(`[wavesurfer.js cutoff] max = ${max}`);
+
+        // If the maximum value is less than 90% the value of the avg, assume the waveform has enough resolution to look good
+        const avgVsMax = avg / max;
+        console.log(`[wavesurfer.js cutoff] avgVsMax = ${avgVsMax}`)
+        if (avgVsMax > 0.10) return peaks;
+        console.log(`[wavesurfer.js cutoff] Performing cutoff...`);
+
+        // Set the threshold point to 25% above avg between max
+        const threshold = (max - avg) * 0.25 + avg;
+        console.log(`[wavesurfer.js cutoff] threshold = ${threshold}`);
+
+        // Manipulation coefficient
+        const manipCoefficient = 0.25 * (max - avg);
+        console.log(`[wavesurfer.js cutoff] manipCoefficient = ${manipCoefficient}`);
+
+        // Decrease the amplitude of peaks above the cutoff
+        return peaks.map(sample => {
+
+            // Don't manipulate anything if we're below the cutoff or if the sample equals zero
+            if (Math.abs(sample) < threshold || sample === 0) return sample;
+
+            return sample * manipCoefficient;
+        });
+    }
+
     /**
      * Get the correct peaks for current wave view-port and render wave
      *
@@ -1280,8 +1327,8 @@ export default class WaveSurfer extends util.Observer {
     drawBuffer() {
         const nominalWidth = Math.round(
             this.getDuration() *
-                this.params.minPxPerSec *
-                this.params.pixelRatio
+            this.params.minPxPerSec *
+            this.params.pixelRatio
         );
         const parentWidth = this.drawer.getWidth();
         let width = nominalWidth;
@@ -1312,6 +1359,7 @@ export default class WaveSurfer extends util.Observer {
                     newRanges[i][0],
                     newRanges[i][1]
                 );
+                if (this.params.shouldCutoff) peaks = this.applyCutoff(peaks);
                 this.drawer.drawPeaks(
                     peaks,
                     width,
@@ -1321,6 +1369,7 @@ export default class WaveSurfer extends util.Observer {
             }
         } else {
             peaks = this.backend.getPeaks(width, start, end);
+            if (this.params.shouldCutoff) peaks = this.applyCutoff(peaks);
             this.drawer.drawPeaks(peaks, width, start, end);
         }
         this.fireEvent('redraw', peaks, width);
@@ -1452,7 +1501,7 @@ export default class WaveSurfer extends util.Observer {
                 // eslint-disable-next-line no-console
                 console.warn(
                     'Preload parameter of wavesurfer.load will be ignored because:\n\t- ' +
-                        activeReasons.join('\n\t- ')
+                    activeReasons.join('\n\t- ')
                 );
                 // stop invalid values from being used
                 preload = null;
@@ -1671,10 +1720,10 @@ export default class WaveSurfer extends util.Observer {
         );
 
         return new Promise((resolve, reject) => {
-            if (!noWindow){
+            if (!noWindow) {
                 const blobJSON = new Blob(
                     [JSON.stringify(arr)],
-                    {type: 'application/json;charset=utf-8'}
+                    { type: 'application/json;charset=utf-8' }
                 );
                 const objURL = URL.createObjectURL(blobJSON);
                 window.open(objURL);
@@ -1726,7 +1775,7 @@ export default class WaveSurfer extends util.Observer {
             // See Firefox bug: https://bugzilla.mozilla.org/show_bug.cgi?id=1583815
             if (this.currentRequest._reader) {
                 // Ignoring exceptions thrown by call to cancel()
-                this.currentRequest._reader.cancel().catch(err => {});
+                this.currentRequest._reader.cancel().catch(err => { });
             }
 
             this.currentRequest.controller.abort();
